@@ -5,6 +5,7 @@ Fetches property values from AWS Secrets Manager.
 """
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 from git import Repo
 from git.exc import GitCommandError
@@ -263,15 +264,41 @@ class GitPropertiesAgent:
         self.write_properties(file_path, current)
         print("Properties updated successfully!")
 
-    def commit_and_push(self, commit_message: str,
-                        username: str = None, token: str = None):
+    def create_feature_branch(self, prefix: str = "update") -> str:
         """
-        Commit changes and push to remote.
+        Create a new feature branch with timestamp.
+
+        Args:
+            prefix: Prefix for the branch name
+
+        Returns:
+            str: Name of the created branch
+        """
+        if self.repo is None:
+            raise Exception("Repository not initialized. Call clone_or_pull_repository() first.")
+
+        # Create branch name with timestamp
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        branch_name = f"{prefix}-{timestamp}"
+
+        print(f"Creating new branch: {branch_name}")
+        self.repo.git.checkout('-b', branch_name)
+        print(f"Switched to new branch: {branch_name}")
+
+        return branch_name
+
+    def commit_and_push_with_branch(self, commit_message: str,
+                                     username: str = None, token: str = None,
+                                     branch_prefix: str = "update"):
+        """
+        Create a feature branch, commit changes, push branch, merge to main, and push main.
+        This ensures changes are preserved in a separate branch before merging to main.
 
         Args:
             commit_message: Git commit message
             username: GitHub username (for authentication)
             token: GitHub personal access token (for authentication)
+            branch_prefix: Prefix for the feature branch name
         """
         if self.repo is None:
             raise Exception("Repository not initialized. Call clone_or_pull_repository() first.")
@@ -284,22 +311,43 @@ class GitPropertiesAgent:
             print("No changes to commit.")
             return
 
-        self.repo.index.commit(commit_message)
-        print(f"Committed: {commit_message}")
+        # Set up authentication
+        if username and token:
+            remote_url = self.repo_url.replace(
+                "https://",
+                f"https://{username}:{token}@"
+            )
+            self.repo.git.remote("set-url", "origin", remote_url)
 
         try:
-            if username and token:
-                remote_url = self.repo_url.replace(
-                    "https://",
-                    f"https://{username}:{token}@"
-                )
-                self.repo.git.remote("set-url", "origin", remote_url)
+            # Step 1: Create a new feature branch
+            feature_branch = self.create_feature_branch(branch_prefix)
 
+            # Step 2: Commit changes to feature branch
+            self.repo.index.commit(commit_message)
+            print(f"Committed to {feature_branch}: {commit_message}")
+
+            # Step 3: Push feature branch to remote (backup)
             origin = self.repo.remote(name='origin')
-            origin.push()
-            print("Changes pushed successfully!")
+            origin.push(feature_branch)
+            print(f"Pushed feature branch: {feature_branch}")
+
+            # Step 4: Switch back to main branch
+            print(f"Switching to {self.branch}...")
+            self.repo.git.checkout(self.branch)
+
+            # Step 5: Merge feature branch into main
+            print(f"Merging {feature_branch} into {self.branch}...")
+            self.repo.git.merge(feature_branch)
+
+            # Step 6: Push main branch
+            origin.push(self.branch)
+            print(f"Pushed {self.branch} branch successfully!")
+
+            print(f"\nChanges saved in branch '{feature_branch}' and merged to '{self.branch}'")
+
         except GitCommandError as e:
-            raise Exception(f"Failed to push: {e}")
+            raise Exception(f"Failed to commit/push: {e}")
 
     def __enter__(self):
         """Context manager entry."""
@@ -345,11 +393,12 @@ def main():
             # Update the properties with values from AWS
             agent.update_properties(config.PROPERTIES_FILE, properties_updates)
 
-            # Commit and push
-            agent.commit_and_push(
+            # Commit to feature branch and merge to main
+            agent.commit_and_push_with_branch(
                 commit_message=config.COMMIT_MESSAGE,
                 username=config.GITHUB_USERNAME,
-                token=config.GITHUB_TOKEN
+                token=config.GITHUB_TOKEN,
+                branch_prefix=config.BRANCH_PREFIX
             )
 
             print("\nAgent completed successfully!")

@@ -7,6 +7,7 @@ import os
 # Git Repository Configuration
 REPO_URL = "https://github.com/shahid-timesolv/mytest.git"
 BRANCH = "main"
+BRANCH_PREFIX = "code-update"  # Prefix for feature branches (e.g., code-update-20240127-143022)
 
 # Properties File Configuration
 PROPERTIES_FILE = "test.properties"
@@ -21,7 +22,7 @@ AWS_SECRET_JSON_KEY = "dev_url"  # If secret is JSON, extract this key's value (
 TARGET_PROPERTY_KEY = "db.url"
 
 # Git Commit Configuration
-COMMIT_MESSAGE = "Update DB configuration properties"
+COMMIT_MESSAGE = "Update configuration properties"
 
 # GitHub Credentials
 # In production, use environment variables instead of hardcoded values
